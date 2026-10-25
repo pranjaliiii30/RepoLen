@@ -221,6 +221,12 @@ def sidebar(registry: dict[str, RepoIndex], chroma_client):
             url = st.text_input("Repository URL", placeholder="https://github.com/owner/repo")
             branch = st.text_input("Branch (optional)")
             token = st.text_input("Access token (private repos)", type="password")
+            gemini_api_key = st.text_input(
+                "Gemini API key",
+                type="password",
+                help="Enter your Gemini API key here for this session. Falls back to .env if left blank.",
+                placeholder="Paste API key here",
+            )
             index_clicked = st.form_submit_button("Index repository", type="primary", use_container_width=True)
         st.divider()
         st.markdown("### Model settings")
@@ -298,6 +304,7 @@ def sidebar(registry: dict[str, RepoIndex], chroma_client):
             "url": url,
             "branch": branch,
             "token": token,
+            "gemini_api_key": gemini_api_key,
             "index_clicked": index_clicked,
             "repo": repo,
             "language": None if language == "All languages" else language,
@@ -388,7 +395,7 @@ def render_chat(
         else:
             try:
                 collection = chroma_client.get_collection(repo.collection_name)
-                gemini = create_gemini_client()
+                gemini = create_gemini_client(settings.get("gemini_api_key"))
                 with st.status("Searching indexed code and preparing an answer...", expanded=False):
                     def safe_rewrite(question: str) -> list[str]:
                         try:
@@ -429,7 +436,7 @@ def render_chat(
         if repo and answer:
             try:
                 suggestions = generate_followups(
-                    create_gemini_client(),
+                    create_gemini_client(settings.get("gemini_api_key")),
                     settings["gemini_model"],
                     prompt,
                     answer,
@@ -547,7 +554,7 @@ def render_insights(repo: RepoIndex | None, settings: dict) -> None:
         st.markdown(repo.overview)
     elif st.button("Generate Repo Overview", type="primary"):
         try:
-            client = create_gemini_client()
+            client = create_gemini_client(settings.get("gemini_api_key"))
             with st.status("Generating an overview from indexed files...", expanded=False):
                 overview = generate_text(
                     client,
