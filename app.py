@@ -90,6 +90,14 @@ def load_chroma_client(path: str):
     return chromadb.PersistentClient(path=path)
 
 
+def get_gemini_key(settings: dict) -> str | None:
+    """Return the user-entered key when enabled, otherwise fall back to the environment."""
+    if settings.get("use_direct_key"):
+        key = (settings.get("gemini_api_key") or "").strip()
+        return key or None
+    return None
+
+
 def load_registry() -> dict[str, RepoIndex]:
     """Load indexed repository metadata from the local JSON registry."""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -221,13 +229,27 @@ def sidebar(registry: dict[str, RepoIndex], chroma_client):
             url = st.text_input("Repository URL", placeholder="https://github.com/owner/repo")
             branch = st.text_input("Branch (optional)")
             token = st.text_input("Access token (private repos)", type="password")
+
+            use_direct_key = st.checkbox(
+                "Use direct Gemini API key",
+                value=bool(st.session_state.get("use_direct_gemini_key", False)),
+                help="Enable manual key entry instead of relying only on .env",
+            )
+            st.session_state["use_direct_gemini_key"] = use_direct_key
             gemini_api_key = st.text_input(
                 "Gemini API key",
                 type="password",
-                help="Enter your Gemini API key here for this session. Falls back to .env if left blank.",
+                key="gemini_ui_key",
                 placeholder="Paste API key here",
+                disabled=not use_direct_key,
             )
-            index_clicked = st.form_submit_button("Index repository", type="primary", use_container_width=True)
+
+            index_clicked = st.form_submit_button(
+                "Index repository",
+                type="primary",
+                use_container_width=True,
+            )
+
         st.divider()
         st.markdown("### Model settings")
         gemini_model = st.selectbox(
@@ -304,6 +326,7 @@ def sidebar(registry: dict[str, RepoIndex], chroma_client):
             "url": url,
             "branch": branch,
             "token": token,
+            "use_direct_key": use_direct_key,
             "gemini_api_key": gemini_api_key,
             "index_clicked": index_clicked,
             "repo": repo,
@@ -395,7 +418,7 @@ def render_chat(
         else:
             try:
                 collection = chroma_client.get_collection(repo.collection_name)
-                gemini = create_gemini_client(settings.get("gemini_api_key"))
+                gemini = create_gemini_client(get_gemini_key(settings))
                 with st.status("Searching indexed code and preparing an answer...", expanded=False):
                     def safe_rewrite(question: str) -> list[str]:
                         try:
@@ -436,7 +459,7 @@ def render_chat(
         if repo and answer:
             try:
                 suggestions = generate_followups(
-                    create_gemini_client(settings.get("gemini_api_key")),
+                    create_gemini_client(get_gemini_key(settings)),
                     settings["gemini_model"],
                     prompt,
                     answer,
@@ -554,7 +577,7 @@ def render_insights(repo: RepoIndex | None, settings: dict) -> None:
         st.markdown(repo.overview)
     elif st.button("Generate Repo Overview", type="primary"):
         try:
-            client = create_gemini_client(settings.get("gemini_api_key"))
+            client = create_gemini_client(get_gemini_key(settings))
             with st.status("Generating an overview from indexed files...", expanded=False):
                 overview = generate_text(
                     client,
